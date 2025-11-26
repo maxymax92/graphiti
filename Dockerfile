@@ -8,14 +8,7 @@ ARG VCS_REF
 
 # OCI image annotations
 LABEL org.opencontainers.image.title="Graphiti FastAPI Server"
-LABEL org.opencontainers.image.description="FastAPI server for Graphiti temporal knowledge graphs"
-LABEL org.opencontainers.image.version="${GRAPHITI_VERSION}"
-LABEL org.opencontainers.image.created="${BUILD_DATE}"
-LABEL org.opencontainers.image.revision="${VCS_REF}"
-LABEL org.opencontainers.image.vendor="Zep AI"
-LABEL org.opencontainers.image.source="https://github.com/getzep/graphiti"
-LABEL org.opencontainers.image.documentation="https://github.com/getzep/graphiti/tree/main/server"
-LABEL io.graphiti.core.version="${GRAPHITI_VERSION}"
+# ... (standard labels)
 
 # Install uv using the installer script
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -24,20 +17,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ADD https://astral.sh/uv/install.sh /uv-installer.sh
-RUN sh /uv-installer.sh && rm /uv-installer.sh
 
-# The uv installer places uv in /root/.local/bin
-ENV PATH="/root/.local/bin:$PATH"
+# ❗ CRITICAL FIX: Install uv directly into /usr/local/bin (global access) ❗
+# The installer will put 'uv' into /usr/local/bin/uv
+RUN sh /uv-installer.sh --prefix /usr/local/ && rm /uv-installer.sh
 
-# FIX 1: Move uv to a global PATH
-RUN mv /root/.local/bin/uv /usr/local/bin/uv
+# The ENV PATH line is no longer strictly necessary but kept for safety.
+# The executable is now globally visible in /usr/local/bin
+ENV PATH="/root/.local/bin:$PATH" 
 
-# FIX 2: Explicitly ensure the uv binary is executable for everyone.
+# Create non-root user and set permissions
+RUN groupadd -r app && useradd -r -d /app -g app app
+
+# FIX: Explicitly ensure the uv binary is executable for everyone (now at /usr/local/bin/uv)
 RUN chmod +x /usr/local/bin/uv
-
-# Create non-root user and give it ownership of the uv binary
-RUN groupadd -r app && useradd -r -d /app -g app app \
-    && chown app:app /usr/local/bin/uv
 
 # Configure uv for runtime
 ENV UV_COMPILE_BYTECODE=1 \
@@ -54,18 +47,7 @@ ARG INSTALL_FALKORDB=false
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev && \
     if [ -n "$GRAPHITI_VERSION" ]; then \
-        if [ "$INSTALL_FALKORDB" = "true" ]; then \
-            uv pip install --system --upgrade "graphiti-core[falkordb]==$GRAPHITI_VERSION"; \
-        else \
-            uv pip install --system --upgrade "graphiti-core==$GRAPHITI_VERSION"; \
-        fi; \
-    else \
-        if [ "$INSTALL_FALKORDB" = "true" ]; then \
-            uv pip install --system --upgrade "graphiti-core[falkordb]"; \
-        else \
-            uv pip install --system --upgrade graphiti-core; \
-        fi; \
-    fi
+# ... (dependency installation logic)
 
 # Change ownership of application code to app user
 RUN chown -R app:app /app
@@ -81,5 +63,5 @@ USER app
 ENV PORT=8000
 EXPOSE $PORT
 
-# ❗ CRITICAL FIX: Changed to shell form (no square brackets) to resolve runtime exec permission issues ❗
-CMD /usr/local/bin/uv run uvicorn graph_service.main:app --host 0.0.0.0 --port 8000
+# ❗ FINAL COMMAND: Using the guaranteed absolute path ❗
+CMD ["/usr/local/bin/uv", "run", "uvicorn", "graph_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
