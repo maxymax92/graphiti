@@ -81,5 +81,5 @@ USER app
 ENV PORT=8000
 EXPOSE $PORT
 
-# ❗ FINAL FIX: Use the absolute path for 'uv' to bypass environment PATH issues ❗
-CMD ["/usr/local/bin/uv", "run", "uvicorn", "graph_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# ❗ CRITICAL FIX: Changed to shell form (no square brackets) to resolve runtime exec permission issues ❗
+CMD /usr/local/bin/uv run uvicorn graph_service.main:app --host 0.0.0.0 --port 8000
