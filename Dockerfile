@@ -32,14 +32,12 @@ ENV PATH="/root/.local/bin:$PATH"
 # FIX 1: Move uv to a global PATH
 RUN mv /root/.local/bin/uv /usr/local/bin/uv
 
-# FIX 2 (New): Explicitly ensure the uv binary is executable.
+# FIX 2: Explicitly ensure the uv binary is executable for everyone.
 RUN chmod +x /usr/local/bin/uv
 
-# Create non-root user
-RUN groupadd -r app && useradd -r -d /app -g app app
-
-# FIX 3: Ensure the 'app' user owns the uv executable.
-RUN chown app:app /usr/local/bin/uv
+# Create non-root user and give it ownership of the uv binary
+RUN groupadd -r app && useradd -r -d /app -g app app \
+    && chown app:app /usr/local/bin/uv
 
 # Configure uv for runtime
 ENV UV_COMPILE_BYTECODE=1 \
@@ -51,9 +49,7 @@ WORKDIR /app
 COPY ./server/pyproject.toml ./server/README.md ./server/uv.lock ./
 COPY ./server/graph_service ./graph_service
 
-# Install server dependencies (without graphiti-core from lockfile)
-# Then install graphiti-core from PyPI at the desired version
-# This prevents the stale lockfile from pinning an old graphiti-core version
+# Install server dependencies 
 ARG INSTALL_FALKORDB=false
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev && \
@@ -85,5 +81,5 @@ USER app
 ENV PORT=8000
 EXPOSE $PORT
 
-# Use uv run for execution
-CMD ["uv", "run", "uvicorn", "graph_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# ❗ FINAL FIX: Use the absolute path for 'uv' to bypass environment PATH issues ❗
+CMD ["/usr/local/bin/uv", "run", "uvicorn", "graph_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
