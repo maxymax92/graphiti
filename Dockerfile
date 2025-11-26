@@ -29,16 +29,17 @@ RUN sh /uv-installer.sh && rm /uv-installer.sh
 # The uv installer places uv in /root/.local/bin
 ENV PATH="/root/.local/bin:$PATH"
 
-# FIX: Move uv to a globally accessible PATH (/usr/local/bin) so the non-root 'app' user can execute it.
+# FIX 1: Move uv to a global PATH
 RUN mv /root/.local/bin/uv /usr/local/bin/uv
+
+# FIX 2 (Critical for Permission Denied): Ensure the 'app' user owns the uv executable.
+RUN groupadd -r app && useradd -r -d /app -g app app
+RUN chown app:app /usr/local/bin/uv
 
 # Configure uv for runtime
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never
-
-# Create non-root user
-RUN groupadd -r app && useradd -r -d /app -g app app
 
 # Set up the server application first
 WORKDIR /app
@@ -65,7 +66,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         fi; \
     fi
 
-# Change ownership to app user
+# Change ownership of application code to app user
 RUN chown -R app:app /app
 
 # Set environment variables
