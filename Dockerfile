@@ -32,8 +32,13 @@ ENV PATH="/root/.local/bin:$PATH"
 # FIX 1: Move uv to a global PATH
 RUN mv /root/.local/bin/uv /usr/local/bin/uv
 
-# FIX 2 (Critical for Permission Denied): Ensure the 'app' user owns the uv executable.
+# FIX 2 (New): Explicitly ensure the uv binary is executable.
+RUN chmod +x /usr/local/bin/uv
+
+# Create non-root user
 RUN groupadd -r app && useradd -r -d /app -g app app
+
+# FIX 3: Ensure the 'app' user owns the uv executable.
 RUN chown app:app /usr/local/bin/uv
 
 # Configure uv for runtime
