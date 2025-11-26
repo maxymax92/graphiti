@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.9
-FROM python:3.12-slim
+FROM python:3.11-slim
 
 # Inherit build arguments for labels
 ARG GRAPHITI_VERSION
@@ -19,18 +19,23 @@ LABEL io.graphiti.core.version="${GRAPHITI_VERSION}"
 
 # Install uv using the installer script
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 ADD https://astral.sh/uv/install.sh /uv-installer.sh
 RUN sh /uv-installer.sh && rm /uv-installer.sh
+
+# The uv installer places uv in /root/.local/bin
 ENV PATH="/root/.local/bin:$PATH"
+
+# FIX: Move uv to a globally accessible PATH (/usr/local/bin) so the non-root 'app' user can execute it.
+RUN mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Configure uv for runtime
 ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=never
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never
 
 # Create non-root user
 RUN groupadd -r app && useradd -r -d /app -g app app
@@ -45,27 +50,27 @@ COPY ./server/graph_service ./graph_service
 # This prevents the stale lockfile from pinning an old graphiti-core version
 ARG INSTALL_FALKORDB=false
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev && \
-    if [ -n "$GRAPHITI_VERSION" ]; then \
-        if [ "$INSTALL_FALKORDB" = "true" ]; then \
-            uv pip install --system --upgrade "graphiti-core[falkordb]==$GRAPHITI_VERSION"; \
-        else \
-            uv pip install --system --upgrade "graphiti-core==$GRAPHITI_VERSION"; \
-        fi; \
-    else \
-        if [ "$INSTALL_FALKORDB" = "true" ]; then \
-            uv pip install --system --upgrade "graphiti-core[falkordb]"; \
-        else \
-            uv pip install --system --upgrade graphiti-core; \
-        fi; \
-    fi
+    uv sync --frozen --no-dev && \
+    if [ -n "$GRAPHITI_VERSION" ]; then \
+        if [ "$INSTALL_FALKORDB" = "true" ]; then \
+            uv pip install --system --upgrade "graphiti-core[falkordb]==$GRAPHITI_VERSION"; \
+        else \
+            uv pip install --system --upgrade "graphiti-core==$GRAPHITI_VERSION"; \
+        fi; \
+    else \
+        if [ "$INSTALL_FALKORDB" = "true" ]; then \
+            uv pip install --system --upgrade "graphiti-core[falkordb]"; \
+        else \
+            uv pip install --system --upgrade graphiti-core; \
+        fi; \
+    fi
 
 # Change ownership to app user
 RUN chown -R app:app /app
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH"
 
 # Switch to non-root user
 USER app
