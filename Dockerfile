@@ -8,61 +8,67 @@ ARG VCS_REF
 
 # OCI image annotations
 LABEL org.opencontainers.image.title="Graphiti FastAPI Server"
-LABEL org.opencontainers.image.description="FastAPI server for Graphiti temporal knowledge graphs"
-LABEL org.opencontainers.image.version="${GRAPHITI_VERSION}"
-LABEL org.opencontainers.image.created="${BUILD_DATE}"
-LABEL org.opencontainers.image.revision="${VCS_REF}"
-LABEL org.opencontainers.image.vendor="Zep AI"
-LABEL org.opencontainers.image.source="https://github.com/getzep/graphiti"
-LABEL org.opencontainers.image.documentation="https://github.com/getzep/graphiti/tree/main/server"
-LABEL io.graphiti.core.version="${GRAPHITI_VERSION}"
+# ... (standard labels)
 
 # Install necessary system packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# ❗ CRITICAL FIX: Install uv globally using pip ❗
-# This ensures uv is reliably placed in /usr/local/bin and is executable.
-RUN pip install uv
-
-# Create non-root user
+# 1. Create the non-root user early
 RUN groupadd -r app && useradd -r -d /app -g app app
+
+# Set up the server application first
+WORKDIR /app
+
+# 2. Create local directory for user-specific executable install
+RUN mkdir -p /app/local
+# 3. Ensure the app user owns the installation path
+RUN chown -R app:app /app/local
+
+# Temporarily switch to the app user to install uv into their owned path
+USER app
+
+# ❗ CRITICAL FIX: Install uv into a path owned by the 'app' user ❗
+# uv is installed into /app/local/bin/uv
+RUN pip install --prefix=/app/local uv
+
+# Switch back to root to continue building (if needed)
+USER root
 
 # Configure uv for runtime
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never
 
-# Set up the server application first
-WORKDIR /app
+# Copy application files (must be done by root or have permissions changed)
 COPY ./server/pyproject.toml ./server/README.md ./server/uv.lock ./
 COPY ./server/graph_service ./graph_service
 
-# Install server dependencies (using the newly installed uv)
+# Install server dependencies (We must explicitly use the full path to uv here)
 ARG INSTALL_FALKORDB=false
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev && \
+    /app/local/bin/uv sync --frozen --no-dev && \
     if [ -n "$GRAPHITI_VERSION" ]; then \
         if [ "$INSTALL_FALKORDB" = "true" ]; then \
-            uv pip install --system --upgrade "graphiti-core[falkordb]==$GRAPHITI_VERSION"; \
+            /app/local/bin/uv pip install --system --upgrade "graphiti-core[falkordb]==$GRAPHITI_VERSION"; \
         else \
-            uv pip install --system --upgrade "graphiti-core==$GRAPHITI_VERSION"; \
+            /app/local/bin/uv pip install --system --upgrade "graphiti-core==$GRAPHITI_VERSION"; \
         fi; \
     else \
         if [ "$INSTALL_FALKORDB" = "true" ]; then \
-            uv pip install --system --upgrade "graphiti-core[falkordb]"; \
+            /app/local/bin/uv pip install --system --upgrade "graphiti-core[falkordb]"; \
         else \
-            uv pip install --system --upgrade graphiti-core; \
+            /app/local/bin/uv pip install --system --upgrade graphiti-core; \
         fi; \
     fi
 
 # Change ownership of application code to app user
 RUN chown -R app:app /app
 
-# Set environment variables
+# Set environment variables (Add the new executable path)
 ENV PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/local/bin:/app/.venv/bin:$PATH"
 
 # Switch to non-root user
 USER app
@@ -71,5 +77,5 @@ USER app
 ENV PORT=8000
 EXPOSE $PORT
 
-# ❗ FINAL COMMAND: Use the path guaranteed by pip install ❗
-CMD ["/usr/local/bin/uv", "run", "uvicorn", "graph_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# ❗ FINAL COMMAND: Using the path guaranteed by the user-specific install ❗
+CMD ["/app/local/bin/uv", "run", "uvicorn", "graph_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
